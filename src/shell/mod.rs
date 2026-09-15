@@ -3,7 +3,7 @@ use crate::hook_env;
 use indoc::formatdoc;
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use usage_rs::spec::ValueEnum;
 
@@ -129,10 +129,27 @@ pub(crate) trait Shell: Display {
                 ActivatePrelude::Set(k, v) => self.set_env(k, v),
                 ActivatePrelude::Prepend(k, v) => self.prepend_env(k, v),
                 ActivatePrelude::MovePrepend(k, v) => self.move_prepend_env(k, v),
+                ActivatePrelude::Raw(s) => s.clone(),
             })
             .join("")
     }
+
+    /// Emit `$HOME`, then `~`, then `fallback_home` into `PORTABLE_HOME_VAR`.
+    fn render_portable_home_init(&self, fallback_home: &str) -> String;
+
+    /// Prepend to `key` through `PORTABLE_HOME_VAR` when `suffix_under_home`
+    /// is `Some`, else the absolute `fallback_abs`.
+    fn render_portable_prepend(
+        &self,
+        key: &str,
+        suffix_under_home: Option<&str>,
+        fallback_abs: &str,
+    ) -> String;
 }
+
+/// Home variable for portable scripts: one name in every shell so a shared
+/// snapshot is patched in one place.
+pub(crate) const PORTABLE_HOME_VAR: &str = "__MISE_HOME";
 
 pub(crate) enum ActivatePrelude {
     Set(String, String),
@@ -140,6 +157,19 @@ pub(crate) enum ActivatePrelude {
     /// Like Prepend but moves existing entries to the front (for fish --move).
     /// Used only by activate_shims to reorder paths on re-source.
     MovePrepend(String, String),
+    /// Verbatim shell code.
+    Raw(String),
+}
+
+/// Home-relative suffix of `path`, or `None` when it is not under `home`.
+pub(crate) fn home_suffix(path: &Path, home: &Path) -> Option<String> {
+    if home.as_os_str().is_empty() {
+        return None;
+    }
+    path.strip_prefix(home)
+        .ok()
+        .map(|s| s.to_string_lossy().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 pub(crate) struct ActivateOptions {
@@ -216,6 +246,33 @@ mod tests {
     use super::*;
     use std::str::FromStr;
     use usage_rs::spec::ValueEnum;
+
+    /// A path under the home directory yields its relative suffix; anything
+    /// else (including an empty home) yields nothing so callers emit the
+    /// absolute path literally.
+    #[test]
+    fn home_suffix_splits_only_paths_under_home() {
+        use std::path::Path;
+        assert_eq!(
+            home_suffix(
+                Path::new("/home/alice/.local/share/mise/shims"),
+                Path::new("/home/alice")
+            ),
+            Some(".local/share/mise/shims".to_string())
+        );
+        assert_eq!(
+            home_suffix(
+                Path::new("/usr/local/share/mise/shims"),
+                Path::new("/home/alice")
+            ),
+            None
+        );
+        assert_eq!(
+            home_suffix(Path::new("/home/alice"), Path::new("/home/alice")),
+            None
+        );
+        assert_eq!(home_suffix(Path::new("/a/b"), Path::new("")), None);
+    }
 
     #[test]
     fn a_windows_path_resolves_to_its_shell() {

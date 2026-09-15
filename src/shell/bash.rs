@@ -5,7 +5,7 @@ use shell_escape::unix::escape;
 
 use crate::config::Settings;
 use crate::env;
-use crate::shell::{self, ActivateOptions, Shell};
+use crate::shell::{self, ActivateOptions, PORTABLE_HOME_VAR, Shell};
 
 #[derive(Default)]
 pub(super) struct Bash {}
@@ -107,6 +107,36 @@ impl Shell for Bash {
             .replace('`', "\\`")
             .replace('$', "\\$");
         format!("export {k}=\"{v}:${k}\"\n")
+    }
+
+    fn render_portable_home_init(&self, fallback_home: &str) -> String {
+        let var = PORTABLE_HOME_VAR;
+        let fallback = fallback_home.replace('\'', "'\\''");
+        format!(
+            ": \"${var}:=${{HOME:-}}\"\n\
+             if [ -z \"${var}\" ]; then {var}=~; fi\n\
+             if [ -z \"${var}\" ] || [ \"${var}\" = \"~\" ]; then {var}='{fallback}'; fi\n"
+        )
+    }
+
+    fn render_portable_prepend(
+        &self,
+        key: &str,
+        suffix_under_home: Option<&str>,
+        fallback_abs: &str,
+    ) -> String {
+        let is_path = env::is_path_key(key);
+        let k = if is_path { "PATH" } else { key };
+        let Some(suffix) = suffix_under_home else {
+            return self.prepend_env(key, fallback_abs);
+        };
+        let var = PORTABLE_HOME_VAR;
+        let suffix = suffix
+            .replace('\\', "/")
+            .replace('"', "\\\"")
+            .replace('`', "\\`")
+            .replace('$', "\\$");
+        format!("export {k}=\"${var}/{suffix}:${k}\"\n")
     }
 
     fn unset_env(&self, k: &str) -> String {

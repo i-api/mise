@@ -5,7 +5,7 @@ use indoc::formatdoc;
 
 use crate::{
     env,
-    shell::{self, ActivateOptions, ActivatePrelude, Shell},
+    shell::{self, ActivateOptions, ActivatePrelude, PORTABLE_HOME_VAR, Shell},
 };
 use itertools::Itertools;
 
@@ -46,6 +46,7 @@ impl Nushell {
                 ActivatePrelude::Prepend(k, v) | ActivatePrelude::MovePrepend(k, v) => {
                     self.prepend_env(k, v)
                 }
+                ActivatePrelude::Raw(s) => s.clone(),
             })
             .join("")
     }
@@ -146,6 +147,28 @@ impl Shell for Nushell {
         let v = Nushell::escape_csv_value(v);
 
         EnvOp::Set { key: &k, val: &v }.to_string()
+    }
+
+    fn render_portable_home_init(&self, fallback_home: &str) -> String {
+        let var = PORTABLE_HOME_VAR;
+        format!(
+            "mut {var} = if (\"HOME\" in $env) and ($env.HOME != \"\" and $env.HOME != \"~\") {{ $env.HOME }} else {{ ~ }}\n\
+             if (${var} == \"\" or ${var} == \"~\") {{ ${var} = r#'{fallback_home}'# }}\n"
+        )
+    }
+
+    fn render_portable_prepend(
+        &self,
+        key: &str,
+        suffix_under_home: Option<&str>,
+        fallback_abs: &str,
+    ) -> String {
+        let Some(suffix) = suffix_under_home else {
+            return self.prepend_env(key, fallback_abs);
+        };
+        let var = PORTABLE_HOME_VAR;
+        let sep = if cfg!(windows) { '\\' } else { '/' };
+        format!("$env.{key} = ($env.{key} | prepend (${var} + r#'{sep}{suffix}'#))\n")
     }
 
     fn prepend_env(&self, k: &str, v: &str) -> String {

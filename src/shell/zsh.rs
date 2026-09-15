@@ -165,6 +165,19 @@ impl Shell for Zsh {
         "#}
     }
 
+    fn render_portable_home_init(&self, fallback_home: &str) -> String {
+        Bash::default().render_portable_home_init(fallback_home)
+    }
+
+    fn render_portable_prepend(
+        &self,
+        key: &str,
+        suffix_under_home: Option<&str>,
+        fallback_abs: &str,
+    ) -> String {
+        Bash::default().render_portable_prepend(key, suffix_under_home, fallback_abs)
+    }
+
     fn set_env(&self, k: &str, v: &str) -> String {
         Bash::default().set_env(k, v)
     }

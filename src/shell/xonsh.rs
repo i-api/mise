@@ -4,7 +4,7 @@ use std::fmt::Display;
 
 use indoc::formatdoc;
 
-use crate::shell::{self, ActivateOptions, Shell};
+use crate::shell::{self, ActivateOptions, PORTABLE_HOME_VAR, Shell};
 
 #[derive(Default)]
 pub(super) struct Xonsh {}
@@ -114,6 +114,39 @@ impl Shell for Xonsh {
         "#,
             k = shell_escape::unix::escape(k.into()), // todo: drop illegal chars, not escape?
             v = xonsh_escape_sq(v)
+        )
+    }
+
+    fn render_portable_home_init(&self, fallback_home: &str) -> String {
+        let var = PORTABLE_HOME_VAR;
+        let fallback = xonsh_escape_sq(fallback_home);
+        format!(
+            "import os as _mise_os\n\
+             {var} = _mise_os.environ.get('HOME') or _mise_os.path.expanduser('~')\n\
+             if not {var} or {var} == '~': {var} = '{fallback}'\n"
+        )
+    }
+
+    fn render_portable_prepend(
+        &self,
+        key: &str,
+        suffix_under_home: Option<&str>,
+        fallback_abs: &str,
+    ) -> String {
+        let Some(suffix) = suffix_under_home else {
+            return self.prepend_env(key, fallback_abs);
+        };
+        let var = PORTABLE_HOME_VAR;
+        let normalized = suffix.replace('\\', "/");
+        let suffix = xonsh_escape_sq(&normalized);
+        formatdoc!(
+            r#"
+            from xonsh.built_ins import XSH
+            XSH.env['{k}'].add({var} + '/{suffix}', front=True)
+        "#,
+            k = shell_escape::unix::escape(key.into()),
+            var = var,
+            suffix = suffix,
         )
     }
 

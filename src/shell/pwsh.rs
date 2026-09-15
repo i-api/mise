@@ -5,7 +5,7 @@ use std::fmt::Display;
 
 use indoc::formatdoc;
 
-use crate::shell::{self, ActivateOptions, Shell};
+use crate::shell::{self, ActivateOptions, PORTABLE_HOME_VAR, Shell};
 
 #[derive(Default)]
 pub(super) struct Pwsh {}
@@ -374,6 +374,35 @@ impl Shell for Pwsh {
         let k = escape_env_name(k);
         let v = escape_sq(v);
         format!("${{Env:{k}}}='{v}'\n")
+    }
+
+    fn render_portable_home_init(&self, fallback_home: &str) -> String {
+        let var = PORTABLE_HOME_VAR;
+        let fallback = escape_sq(fallback_home);
+        format!(
+            "${var} = $env:HOME\n\
+             if (-not ${var} -or ${var} -eq '' -or ${var} -eq '~') {{ ${var} = (Resolve-Path ~ -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -ErrorAction SilentlyContinue) }}\n\
+             if (-not ${var} -or ${var} -eq '~') {{ ${var} = '{fallback}' }}\n"
+        )
+    }
+
+    fn render_portable_prepend(
+        &self,
+        key: &str,
+        suffix_under_home: Option<&str>,
+        fallback_abs: &str,
+    ) -> String {
+        let Some(suffix) = suffix_under_home else {
+            return self.prepend_env(key, fallback_abs);
+        };
+        let var = PORTABLE_HOME_VAR;
+        let k = escape_env_name(key);
+        let sep = if cfg!(windows) { '\\' } else { '/' };
+        let suffix = suffix
+            .replace('`', "``")
+            .replace('$', "`$")
+            .replace('"', "`\"");
+        format!("${{Env:{k}}}=\"${var}{sep}{suffix}\"+[IO.Path]::PathSeparator+${{env:{k}}}\n")
     }
 
     fn prepend_env(&self, k: &str, v: &str) -> String {

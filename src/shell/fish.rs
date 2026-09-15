@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::config::Settings;
 use crate::env::{self};
-use crate::shell::{self, ActivateOptions, Shell};
+use crate::shell::{self, ActivateOptions, PORTABLE_HOME_VAR, Shell};
 use indoc::formatdoc;
 use itertools::Itertools;
 use shell_escape::unix::escape;
@@ -233,6 +233,38 @@ impl Shell for Fish {
 
     fn supports_move_path(&self) -> bool {
         true
+    }
+
+    fn render_portable_home_init(&self, fallback_home: &str) -> String {
+        let var = PORTABLE_HOME_VAR;
+        let fallback = escape(fallback_home.into());
+        format!(
+            "if test -n \"$HOME\"; set -g {var} $HOME; else; set -g {var} ~; end\n\
+             if test -z \"${var}\"; or test \"${var}\" = \"~\"; set -g {var} {fallback}; end\n"
+        )
+    }
+
+    fn render_portable_prepend(
+        &self,
+        key: &str,
+        suffix_under_home: Option<&str>,
+        fallback_abs: &str,
+    ) -> String {
+        let Some(suffix) = suffix_under_home else {
+            return self.prepend_env(key, fallback_abs);
+        };
+        let var = PORTABLE_HOME_VAR;
+        if env::is_path_key(key) {
+            let suffix = suffix
+                .replace('\\', "/")
+                .replace('"', "\\\"")
+                .replace('$', "\\$");
+            format!("fish_add_path --global --move --path \"${var}/{suffix}\"\n")
+        } else {
+            let k = escape(key.into());
+            let suffix = escape(suffix.into());
+            format!("set -gx {k} \"${var}/{suffix}\" ${k}\n")
+        }
     }
 
     fn unset_env(&self, k: &str) -> String {

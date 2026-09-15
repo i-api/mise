@@ -2,7 +2,7 @@
 use std::borrow::Cow;
 use std::fmt::Display;
 
-use crate::shell::{self, ActivateOptions, Shell};
+use crate::shell::{self, ActivateOptions, PORTABLE_HOME_VAR, Shell};
 use indoc::formatdoc;
 
 #[derive(Default)]
@@ -82,6 +82,35 @@ impl Shell for Elvish {
         // thing this drops is the rewriting of values that never had one.
         let v = escape(v.into());
         format!("set-env {k} {v}\n")
+    }
+
+    fn render_portable_home_init(&self, fallback_home: &str) -> String {
+        let var = PORTABLE_HOME_VAR;
+        let var_ref = format!("${var}");
+        let fallback = escape(fallback_home.into());
+        format!(
+            "var {var} = $E:HOME\n\
+             if (eq $E:HOME '') {{ set {var} = ~ }}\n\
+             if (or (eq {var_ref} '') (eq {var_ref} '~')) {{ set {var} = {fallback} }}\n"
+        )
+    }
+
+    fn render_portable_prepend(
+        &self,
+        key: &str,
+        suffix_under_home: Option<&str>,
+        fallback_abs: &str,
+    ) -> String {
+        let Some(suffix) = suffix_under_home else {
+            return self.prepend_env(key, fallback_abs);
+        };
+        let k = escape(key.into());
+        let var_ref = format!("${PORTABLE_HOME_VAR}");
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        let dir_sep = if cfg!(windows) { '\\' } else { '/' };
+        let v = escape(format!("{dir_sep}{suffix}{sep}").into());
+        // Adjacent words concatenate: variable, quoted suffix, current value.
+        format!("set-env {k} {var_ref}{v}(get-env {k})\n")
     }
 
     fn prepend_env(&self, k: &str, v: &str) -> String {
